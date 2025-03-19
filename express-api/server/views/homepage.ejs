@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>API Documentation</title>
+    <!-- Bootstrap CSS -->
+    <link
+      href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <!-- Custom CSS -->
+    <style>
+      body {
+        background-color: #f8f9fa;
+        font-family: "Arial", sans-serif;
+      }
+      .container {
+        margin-top: 50px;
+      }
+      .card {
+        border: none;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      }
+      .card-header {
+        background-color: darkred;
+        color: white;
+        border-top-left-radius: 8px;
+        border-top-right-radius: 8px;
+      }
+      .card-body {
+        padding: 30px;
+      }
+      .card a {
+        color: darkred;
+      }
+      .card a:hover {
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="row justify-content-center">
+        <div class="col-md-8">
+          <div class="card">
+            <div class="card-header text-center">
+              <h1>API Documentation</h1>
+            </div>
+            <div class="card-body text-center">
+              <p class="lead"><%= message %></p>
+              <p>
+                Visit <a href="/api-documents ">Swagger UI</a> for API
+                documentation.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+  </body>
+</html>
