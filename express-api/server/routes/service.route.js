@@ -1,28 +1,30 @@
 import express from "express";
 import {
   createService,
+  deleteMyService,
   deleteService,
-  getOwnServices,
-  getServiceByCategoryId,
-  getServiceByFreelancerID,
-  getServiceById,
+  getMyServices,
+  getService,
   getServices,
-  updateOwnService,
-  updateService,
+  updateMyService,
+  updateServiceStatus,
 } from "../controllers/service.controller.js";
 import { admin, auth, freelancer } from "../utils/verify.js";
 
 const serviceRouter = express.Router();
 
-serviceRouter.get("/:id", auth, getServiceById);
-serviceRouter.get("/", getServices);
-serviceRouter.get("/own/service", auth, getOwnServices);
-serviceRouter.put("/owner/:id", auth, updateOwnService);
-serviceRouter.get("/category/:categoryId", auth, getServiceByCategoryId);
-serviceRouter.get("/freelancer/:freelancerId", auth, getServiceByFreelancerID);
-//Admin
-serviceRouter.post("/", auth, freelancer, createService);
-serviceRouter.put("/:id", auth, admin, updateService);
-serviceRouter.delete("/:id", auth, deleteService);
+// No permissions
+serviceRouter.get("/services", getServices);
+
+// Permissions
+serviceRouter.post("/services", auth, createService);
+serviceRouter.get("/services/:id", auth, getService);
+serviceRouter.patch("/services/:id/status", auth, admin, updateServiceStatus);
+serviceRouter.delete("/services/:id", auth, deleteService);
+
+// Own Services
+serviceRouter.get("/own/services", auth, getMyServices);
+serviceRouter.put("/own/services/:id", auth, updateMyService);
+serviceRouter.delete("/own/services/:id", auth, deleteMyService);
 
 export default serviceRouter;

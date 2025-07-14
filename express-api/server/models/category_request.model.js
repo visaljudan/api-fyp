@@ -17,7 +17,7 @@ const categoryRequestSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    type_for: {
+    type: {
       type: String,
       enum: ["Freelancer", "Service"],
       require: true,

@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const notificationSchema = new mongoose.Schema(
   {
-    user_id: {
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
@@ -14,17 +14,21 @@ const notificationSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    is_read: {
-      type: Boolean,
-      default: false,
-    },
-    is_admin: {
-      type: Boolean,
-      default: false,
-    },
     metadata: {
       type: Object,
       default: {},
+    },
+    isRead: {
+      type: Boolean,
+      default: false,
+    },
+    isAdmin: {
+      type: Boolean,
+      default: false,
+    },
+    source: {
+      type: String,
+      default: "",
     },
   },
   { timestamps: true }

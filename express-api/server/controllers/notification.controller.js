@@ -5,21 +5,46 @@ import { emitNotificationEvent } from "../utils/socketioFunctions.js";
 
 export const getAllNotifications = async (req, res, next) => {
   try {
-    // Get all notifications without filtering by user_id
-    const notifications = await Notification.find().sort({
-      createdAt: -1,
-    });
+    const {
+      page = 1,
+      limit = 10,
+      sort = "createdAt",
+      order = "desc",
+      search = "",
+      isAdmin,
+    } = req.query;
 
-    if (!notifications.length) {
-      return sendError(res, 404, "No notifications found");
+    const skip = (page - 1) * limit;
+    const sortOrder = order === "asc" ? 1 : -1;
+
+    const query = {};
+
+    // Filter by isAdmin if provided
+    if (isAdmin !== undefined) {
+      query.isAdmin = isAdmin === true;
     }
 
-    return sendSuccess(
-      res,
-      200,
-      "Notifications retrieved successfully",
-      notifications
-    );
+    // Search filter (on message or metadata.message)
+    if (search) {
+      query.$or = [
+        { message: { $regex: new RegExp(search, "i") } },
+        { "metadata.message": { $regex: new RegExp(search, "i") } },
+      ];
+    }
+
+    const notifications = await Notification.find(query)
+      .sort({ [sort]: sortOrder })
+      .skip(Number(skip))
+      .limit(Number(limit));
+
+    const total = await Notification.countDocuments(query);
+
+    return sendSuccess(res, 200, "Notifications retrieved successfully", {
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      data: notifications,
+    });
   } catch (error) {
     next(error);
   }
@@ -27,22 +52,45 @@ export const getAllNotifications = async (req, res, next) => {
 
 export const getOwnNotifications = async (req, res, next) => {
   try {
-    const userId = req.user.id;
+    const {
+      page = 1,
+      limit = 10,
+      sort = "createdAt",
+      order = "desc",
+      search = "",
+    } = req.query;
 
-    const notifications = await Notification.find({ user_id: userId }).sort({
-      createdAt: -1,
-    });
+    const userId = req.user._id;
+    const skip = (page - 1) * limit;
+    const sortOrder = order === "asc" ? 1 : -1;
 
-    if (!notifications.length) {
-      return sendError(res, 404, "No notifications found");
+    const query = { userId: userId };
+
+    // Optional search filter
+    if (search) {
+      query.$or = [
+        { message: { $regex: new RegExp(search, "i") } },
+        { "metadata.message": { $regex: new RegExp(search, "i") } },
+      ];
     }
 
-    return sendSuccess(
-      res,
-      200,
-      "Notifications retrieved successfully",
-      notifications
-    );
+    const total = await Notification.countDocuments(query);
+
+    const effectiveLimit = Number(limit);
+    const effectiveSkip =
+      effectiveLimit === 0 ? 0 : (page - 1) * effectiveLimit;
+
+    const notifications = await Notification.find(query)
+      .sort({ [sort]: sortOrder })
+      .skip(effectiveSkip)
+      .limit(effectiveLimit === 0 ? total : effectiveLimit);
+
+    return sendSuccess(res, 200, "Notifications retrieved successfully", {
+      total,
+      page: Number(page),
+      limit: effectiveLimit,
+      data: notifications,
+    });
   } catch (error) {
     next(error);
   }
@@ -57,7 +105,7 @@ export const markNotificationAsRead = async (req, res, next) => {
     }
 
     const notification = await Notification.findByIdAndUpdate(id, {
-      is_read: true,
+      isRead: true,
     });
 
     if (!notification) {
@@ -66,7 +114,7 @@ export const markNotificationAsRead = async (req, res, next) => {
 
     const populatedNotification = await Notification.findById(
       notification._id
-    ).populate("user_id", "name username email");
+    ).populate("userId", "name username email");
 
     emitNotificationEvent("notificationUpdated", populatedNotification);
 
@@ -85,20 +133,23 @@ export const markAllNotificationsAsRead = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    const result = await Notification.updateMany(
-      { user_id: userId, is_read: false },
-      { $set: { is_read: true } }
-    );
+    const notifications = await Notification.updateMany(
+      { userId: userId, isRead: false },
+      { $set: { isRead: true } }
+    ).populate("userId", "name username email");
 
-    if (result.nModified === 0) {
+    if (notifications.nModified === 0) {
       return sendError(res, 404, "No unread notifications found");
     }
 
-    emitNotificationEvent("notificationUpdated", result);
+    emitNotificationEvent("notificationUpdated", notifications);
 
-    return sendSuccess(res, 200, "All notifications marked as read", {
-      updatedCount: result.nModified,
-    });
+    return sendSuccess(
+      res,
+      200,
+      "All notifications marked as read",
+      notifications
+    );
   } catch (error) {
     next(error);
   }

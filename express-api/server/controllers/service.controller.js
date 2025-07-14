@@ -9,93 +9,174 @@ import {
 } from "../utils/socketioFunctions.js";
 import Notification from "../models/notification.model.js";
 
-// Completed
+// No permissions required
+export const getServices = async (req, res, next) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      sort = "createdAt",
+      order = "desc",
+      search = "",
+      freelancerId,
+      categoryId,
+      serviceStatus,
+    } = req.query;
+
+    const skip = (page - 1) * limit;
+    const sortOrder = order === "asc" ? 1 : -1;
+
+    const query = {};
+
+    if (search) {
+      query.name = { $regex: new RegExp(search, "i") };
+      query.description = { $regex: new RegExp(search, "i") };
+    }
+
+    if (freelancerId) {
+      if (!mongoose.Types.ObjectId.isValid(freelancerId)) {
+        return sendError(res, 400, "Invalid freelancer ID format");
+      }
+      query.freelancerId = freelancerId;
+    }
+
+    if (categoryId) {
+      if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+        return sendError(res, 400, "Invalid category ID format");
+      }
+      query.categoryId = categoryId;
+    }
+
+    if (serviceStatus) {
+      query.serviceStatus = serviceStatus;
+    }
+
+    const services = await Service.find(query)
+      .populate("categoryId")
+      .populate("freelancerId")
+      .populate("adminId")
+      .sort({ [sort]: sortOrder })
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Service.countDocuments(query);
+
+    return sendSuccess(res, 200, "Services retrieved successfully", {
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      data: services,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Permissions required
 export const createService = async (req, res, next) => {
   try {
     const {
-      freelancer_id,
+      categoryId,
       name,
-      category_id,
       description,
-      type_rate,
-      price_rate,
+      images,
       tags,
       sample,
+      typeRate,
+      priceRate,
+      availability,
+      nextAvailableDate,
+      experienceLevel,
+      languages,
+      location,
+      duration,
+      requestStatus,
+      visibility,
     } = req.body;
 
-    if (!freelancer_id) {
-      return sendError(res, 400, "Freelancer ID is required.");
-    }
+    const user = req.user;
 
     if (!name) {
-      return sendError(res, 400, "Name is required.");
+      return sendError(res, 400, "Service name is required.");
     }
 
-    if (!category_id) {
-      return sendError(res, 400, "Category ID is required.");
+    if (!categoryId || !mongoose.Types.ObjectId.isValid(categoryId)) {
+      return sendError(res, 400, "Valid category ID is required.");
     }
 
-    if (!type_rate) {
+    if (!description) {
+      return sendError(res, 400, "Service description is required.");
+    }
+
+    if (!images) {
+      return sendError(res, 400, "Service image is required.");
+    }
+
+    if (images.length < 0 || images.length > 5) {
+      return sendError(res, 400, "At least 1 image and at most 5 images.");
+    }
+
+    if (!typeRate) {
       return sendError(res, 400, "Type rate is required.");
     }
 
-    if (!price_rate) {
+    if (!priceRate) {
       return sendError(res, 400, "Price rate is required.");
     }
 
-    if (!mongoose.Types.ObjectId.isValid(freelancer_id)) {
-      return sendError(res, 400, "Invalid freelancer ID format");
-    }
-
-    const freelancer = await User.findById(freelancer_id);
-
-    if (!freelancer) {
-      return sendError(res, 404, "Freelancer not found");
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(category_id)) {
-      return sendError(res, 400, "Invalid Category ID format");
-    }
-
-    const category = await Category.findById(category_id);
-
+    const category = await Category.findById(categoryId);
     if (!category) {
-      return sendError(res, 404, "Category not found");
+      return sendError(res, 404, "Category not found.");
     }
 
+    // Create service object
     const service = new Service({
-      freelancer_id,
+      freelancerId: user._id,
       name: name.trim(),
-      category_id,
+      categoryId,
       description: description?.trim() || "",
-      type_rate,
-      price_rate,
-      tags: Array.isArray(tags) ? tags.map((tag) => tag.trim()) : [],
+      typeRate,
+      priceRate,
+      tags: Array.isArray(tags) ? tags.map((t) => t.trim()) : [],
       sample: Array.isArray(sample)
         ? sample.map((s) => ({
             title: s.title?.trim() || "",
             description: s.description?.trim() || "",
             link: s.link?.trim() || "",
+            image: s.image?.trim() || "",
           }))
         : [],
+      images: Array.isArray(images) ? images.map((img) => img.trim()) : [],
+      availability: availability || "available",
+      nextAvailableDate: nextAvailableDate || null,
+      experienceLevel: experienceLevel || "intermediate",
+      languages: Array.isArray(languages)
+        ? languages.map((lan) => lan.trim())
+        : [],
+      location: location?.trim() || "",
+      duration: duration?.trim() || "",
+      visibility: visibility || "public",
+      requestStatus: requestStatus || "requested",
     });
 
     await service.save();
 
     const populatedService = await Service.findById(service._id)
-      .populate("category_id", "name slug")
-      .populate("freelancer_id", "name email");
+      .populate("categoryId", "name slug")
+      .populate("freelancerId", "name email")
+      .populate("adminId", "name email");
 
+    // Create notification
     try {
       const notification = new Notification({
-        user_id: freelancer_id,
+        userId: user._id,
         type: "Service Pending Approval",
         message: `A new service "${name}" has been created and is pending approval.`,
-        is_read: false,
-        is_admin: true,
+        isRead: false,
+        isAdmin: true,
         metadata: {
           type: "New Service Created",
-          message: `Service "${name}" by "${populatedService.freelancer_id.name}"has been submitted for approval.`,
+          message: `Service "${name}" by "${populatedService.freelancerId.name}" has been submitted for approval.`,
           data: populatedService,
         },
       });
@@ -103,7 +184,7 @@ export const createService = async (req, res, next) => {
       await notification.save();
       emitNotificationEvent("notificationCreated", notification);
     } catch (error) {
-      console.error("Error creating notification:", error);
+      console.error("Notification error:", error);
     }
 
     emitServiceEvent("serviceCreated", populatedService);
@@ -119,42 +200,7 @@ export const createService = async (req, res, next) => {
   }
 };
 
-export const getServices = async (req, res, next) => {
-  try {
-    const services = await Service.find()
-      .populate("freelancer_id", "name email phone")
-      .populate("category_id", "name slug");
-
-    if (!services.length) {
-      return sendError(res, 404, "No services found");
-    }
-
-    return sendSuccess(res, 200, "Services retrieved successfully", services);
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const getOwnServices = async (req, res, next) => {
-  try {
-    const services = await Service.find({
-      freelancer_id: req.user._id,
-    })
-      .populate("freelancer_id", "name email phone")
-      .populate("category_id", "name slug");
-
-    return sendSuccess(
-      res,
-      200,
-      "Your services retrieved successfully",
-      services
-    );
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const getServiceById = async (req, res, next) => {
+export const getService = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -163,8 +209,11 @@ export const getServiceById = async (req, res, next) => {
     }
 
     const service = await Service.findById(id)
-      .populate("freelancer_id", "name email")
-      .populate("category_id", "name slug");
+      .populate({
+        path: "freelancerId",
+        populate: [{ path: "roles" }, { path: "roleId" }],
+      })
+      .populate("categoryId");
 
     if (!service) {
       return sendError(res, 404, "Service not found");
@@ -176,12 +225,13 @@ export const getServiceById = async (req, res, next) => {
   }
 };
 
-export const updateService = async (req, res, next) => {
+export const updateServiceStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { status, admin_comments } = req.body;
+    const { serviceStatus, adminComment } = req.body;
+    const userId = req.user._id;
 
-    if (!["Approved", "Rejected"].includes(status)) {
+    if (!["approved", "rejected"].includes(serviceStatus)) {
       return sendError(
         res,
         400,
@@ -198,133 +248,33 @@ export const updateService = async (req, res, next) => {
       return sendError(res, 404, "Service not found");
     }
 
-    service.status = status;
-    if (admin_comments) {
-      service.admin_comments = admin_comments.trim();
+    service.serviceStatus = serviceStatus;
+
+    if (adminComment) {
+      service.adminComment = adminComment.trim();
     }
+
+    service.adminId = userId;
 
     await service.save();
 
     const populatedService = await Service.findById(service._id)
-      .populate("category_id", "name slug")
-      .populate("freelancer_id", "name username email phone");
+      .populate("categoryId", "name slug")
+      .populate("freelancerId", "name username email phone");
 
     try {
       const notification = new Notification({
-        user_id: service.freelancer_id,
+        userId: service.freelancerId,
         type: "Service Status Update",
         message: `Your service "${
           service.title
-        }" has been ${status.toLowerCase()} with comments "${admin_comments}".`,
-        is_read: false,
-        is_admin: true,
+        }" has been ${populatedService.serviceStatus.toLowerCase()} with comments "${adminComment}".`,
+        isRead: false,
+        isAdmin: false,
         metadata: {
           type: "Service Update",
-          message: `Service "${service.title}" is now ${status}.`,
+          message: `Service "${service.title}" is now ${serviceStatus}.`,
           data: service,
-        },
-      });
-
-      await notification.save();
-      emitNotificationEvent("notificationCreated", notification);
-    } catch (error) {
-      console.error("Error creating notification:", error);
-    }
-
-    emitServiceEvent("serviceUpdated", populatedService);
-
-    return sendSuccess(res, 200, `Service ${status} successfully`, service);
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Uncompleted
-
-export const updateOwnService = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const {
-      name,
-      category_id,
-      description,
-      type_rate,
-      price_rate,
-      tags,
-      sample,
-      availability,
-    } = req.body;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return sendError(res, 400, "Invalid service ID format");
-    }
-
-    const service = await Service.findById(id);
-
-    if (!service) {
-      return sendError(res, 404, "Service not found");
-    }
-
-    if (!service.freelancer_id.equals(req.user._id)) {
-      return sendError(
-        res,
-        403,
-        "Access denied. You can only update your own services."
-      );
-    }
-
-    if (category_id && !mongoose.Types.ObjectId.isValid(category_id)) {
-      return sendError(res, 400, "Invalid category ID format");
-    }
-
-    if (category_id) {
-      const category = await Category.findById(category_id);
-      if (!category) {
-        return sendError(res, 404, "Category not found");
-      }
-    }
-
-    const updatedData = {
-      ...(name && { name: name.trim() }),
-      ...(category_id && { category_id }),
-      ...(description && { description: description.trim() }),
-      ...(type_rate && { type_rate: type_rate.trim() }),
-      ...(price_rate !== undefined && { price_rate }),
-      ...(tags && { tags: tags.map((tag) => tag.trim()) }),
-      ...(sample && {
-        sample: sample.map((item) => ({
-          title: item.title?.trim() || "",
-          description: item.description?.trim() || "",
-          link: item.link?.trim() || "",
-        })),
-      }),
-      ...(availability !== undefined && { availability }),
-    };
-
-    const updatedService = await Service.findByIdAndUpdate(id, updatedData, {
-      new: true,
-      runValidators: true,
-    });
-
-    if (!updatedService) {
-      return sendError(res, 404, "Service not found");
-    }
-
-    const populatedService = await Service.findById(service._id)
-      .populate("category_id", "name slug")
-      .populate("freelancer_id", "name username email phone");
-
-    try {
-      const notification = new Notification({
-        user_id: populatedService.freelancer_id._id,
-        type: "Service Updated",
-        message: `The service "${updatedService.name}" has been updated.`,
-        is_read: false,
-        is_admin: true,
-        metadata: {
-          type: "Service Modification",
-          message: `Service "${updatedService.name}" by "${populatedService.freelancer_id.name}" has been updated.`,
-          data: populatedService,
         },
       });
 
@@ -339,7 +289,7 @@ export const updateOwnService = async (req, res, next) => {
     return sendSuccess(
       res,
       200,
-      "Service updated successfully",
+      `Service ${serviceStatus} successfully`,
       populatedService
     );
   } catch (error) {
@@ -363,7 +313,7 @@ export const deleteService = async (req, res, next) => {
 
     try {
       const notification = new Notification({
-        user_id: service.freelancer_id._id,
+        user_id: service.freelancerId._id,
         type: "Service Deleted",
         message: `The service has been deleted.`,
         is_read: false,
@@ -388,48 +338,190 @@ export const deleteService = async (req, res, next) => {
   }
 };
 
-export const getServiceByCategoryId = async (req, res, next) => {
+// Own Service
+export const getMyServices = async (req, res, next) => {
   try {
-    const { categoryId } = req.params;
+    const {
+      page = 1,
+      limit = 10,
+      sort = "name",
+      order = "asc",
+      search = "",
+      categoryId,
+    } = req.query;
 
-    if (!mongoose.Types.ObjectId.isValid(categoryId)) {
-      return sendError(res, 400, "Invalid category ID format");
+    const skip = (page - 1) * limit;
+    const sortOrder = order === "asc" ? 1 : -1;
+
+    const query = {
+      freelancerId: req.user._id,
+    };
+
+    if (categoryId) {
+      if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+        return sendError(res, 400, "Invalid category ID format");
+      }
+      query.categoryId = categoryId;
     }
 
-    // Find services by category_id
-    const services = await Service.find({ category_id: categoryId })
-      .populate("freelancer_id", "name email")
-      .populate("category_id", "name slug")
-      .sort({ createdAt: -1 }); // Sort by creation date, you can modify as needed
-
-    if (!services.length) {
-      return sendError(res, 404, "No services found for this category");
+    if (search) {
+      query.name = { $regex: new RegExp(search, "i") };
+      query.description = { $regex: new RegExp(description, "i") };
     }
 
-    return sendSuccess(res, 200, "Services retrieved successfully", services);
+    const services = await Service.find(query)
+      .populate("freelancerId", "name email phone")
+      .populate("categoryId", "name slug parentId")
+      .sort({ [sort]: sortOrder })
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Service.countDocuments(query);
+
+    return sendSuccess(res, 200, "Your services retrieved successfully", {
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      data: services,
+    });
   } catch (error) {
     next(error);
   }
 };
 
-export const getServiceByFreelancerID = async (req, res, next) => {
+export const updateMyService = async (req, res, next) => {
   try {
-    const { freelancerId } = req.params;
-    console.log(freelancerId);
+    const { id } = req.params;
+    const user = req.user;
 
-    if (!mongoose.Types.ObjectId.isValid(freelancerId)) {
-      return sendError(res, 400, "Invalid freelancer ID format");
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return sendError(res, 400, "Invalid service ID.");
     }
 
-    const services = await Service.find({ freelancer_id: freelancerId })
-      .populate("freelancer_id", "name email")
-      .sort({ createdAt: -1 });
+    const service = await Service.findById(id);
+    if (!service) return sendError(res, 404, "Service not found.");
 
-    if (!services.length) {
-      return sendError(res, 404, "No services found for this freelancer");
+    if (!service.freelancerId.equals(user._id)) {
+      return sendError(res, 403, "Unauthorized to update this service.");
     }
 
-    return sendSuccess(res, 200, "Services retrieved successfully", services);
+    const {
+      categoryId,
+      name,
+      description,
+      images,
+      tags,
+      sample,
+      typeRate,
+      priceRate,
+      availability,
+      nextAvailableDate,
+      experienceLevel,
+      languages,
+      location,
+      duration,
+      visibility,
+    } = req.body;
+
+    if (categoryId && !mongoose.Types.ObjectId.isValid(categoryId)) {
+      return sendError(res, 400, "Invalid category ID.");
+    }
+
+    if (images && (images.length < 1 || images.length > 5)) {
+      return sendError(res, 400, "You must provide between 1 and 5 images.");
+    }
+
+    // Update fields only if they exist in request
+    if (categoryId) service.categoryId = categoryId;
+    if (name) service.name = name.trim();
+    if (description) service.description = description.trim();
+    if (Array.isArray(images)) service.images = images.map((i) => i.trim());
+    if (Array.isArray(tags)) service.tags = tags.map((t) => t.trim());
+    if (Array.isArray(sample)) {
+      service.sample = sample.map((s) => ({
+        title: s.title?.trim() || "",
+        description: s.description?.trim() || "",
+        link: s.link?.trim() || "",
+        image: s.image?.trim() || "",
+      }));
+    }
+    if (Array.isArray(languages))
+      service.languages = languages.map((lan) => lan.trim());
+    if (typeRate) service.typeRate = typeRate;
+    if (priceRate !== undefined) service.priceRate = priceRate;
+    if (availability) service.availability = availability;
+    if (nextAvailableDate !== undefined)
+      service.nextAvailableDate = nextAvailableDate;
+    if (experienceLevel) service.experienceLevel = experienceLevel;
+    if (location) service.location = location.trim();
+    if (duration) service.duration = duration.trim();
+    if (visibility) service.visibility = visibility;
+
+    await service.save();
+
+    const updatedService = await Service.findById(service._id)
+      .populate("categoryId", "name slug")
+      .populate("freelancerId", "name email");
+
+    emitServiceEvent("serviceUpdated", updatedService);
+
+    return sendSuccess(
+      res,
+      200,
+      "Service updated successfully",
+      updatedService
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteMyService = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return sendError(res, 400, "Invalid service ID format");
+    }
+
+    const service = await Service.findById(id);
+
+    if (!service) {
+      return sendError(res, 404, "Service not found");
+    }
+
+    if (service.freelancerId.toString() !== req.user._id.toString()) {
+      return sendError(
+        res,
+        403,
+        "You are not authorized to delete this service"
+      );
+    }
+
+    await service.deleteOne();
+
+    try {
+      const notification = new Notification({
+        user_id: service.freelancerId,
+        type: "Service Deleted",
+        message: `Your service has been deleted.`,
+        is_read: false,
+        is_admin: false,
+        metadata: {
+          type: "Service Removal",
+          message: `You deleted your service.`,
+        },
+      });
+
+      await notification.save();
+      emitNotificationEvent("notificationCreated", notification);
+    } catch (error) {
+      console.error("Error creating notification:", error);
+    }
+
+    emitServiceEvent("serviceDeleted", id);
+
+    return sendSuccess(res, 200, "Service deleted successfully");
   } catch (error) {
     next(error);
   }

@@ -9,10 +9,10 @@ import Notification from "../models/notification.model.js";
 
 export const createFavorite = async (req, res, next) => {
   try {
-    const { type, freelancer_id, service_id } = req.body;
-    const user_id = req.user._id;
+    const { type, freelancerId, serviceId } = req.body;
+    const userId = req.user._id;
 
-    if (!type || !["Freelancer", "Service"].includes(type)) {
+    if (!type || !["freelancer", "service"].includes(type)) {
       return sendError(
         res,
         400,
@@ -20,7 +20,7 @@ export const createFavorite = async (req, res, next) => {
       );
     }
 
-    if (type === "Freelancer" && !freelancer_id) {
+    if (type === "freelancer" && !freelancerId) {
       return sendError(
         res,
         400,
@@ -28,15 +28,15 @@ export const createFavorite = async (req, res, next) => {
       );
     }
 
-    if (type === "Service" && !service_id) {
+    if (type === "service" && !serviceId) {
       return sendError(res, 400, "Service ID is required for type 'Service'");
     }
 
     const existingFavorite = await Favorite.findOne({
-      user_id,
+      userId,
       type,
-      freelancer_id: freelancer_id || null,
-      service_id: service_id || null,
+      freelancerId: freelancerId || null,
+      serviceId: serviceId || null,
     });
 
     if (existingFavorite) {
@@ -44,10 +44,10 @@ export const createFavorite = async (req, res, next) => {
     }
 
     const favorite = new Favorite({
-      user_id,
+      userId,
       type,
-      freelancer_id: freelancer_id || null,
-      service_id: service_id || null,
+      freelancerId: freelancerId || null,
+      serviceId: serviceId || null,
     });
 
     try {
@@ -58,7 +58,7 @@ export const createFavorite = async (req, res, next) => {
         metadata: {
           type: `Saved ${type}`,
           message: `Saved ${type.toLowerCase()} with ID ${
-            freelancer_id || service_id
+            freelancerId || serviceId
           }.`,
         },
       });
@@ -72,10 +72,10 @@ export const createFavorite = async (req, res, next) => {
     await favorite.save();
 
     const populatedFavorite = await Favorite.findById(favorite._id)
-      .populate("freelancer_id", "name email")
-      .populate("service_id", "name description price_rate");
+      .populate("freelancerId", "name email")
+      .populate("serviceId", "name description price_rate");
 
-    emitFavoriteEvent("favoriteCreated", populatedFavorite);
+    emitFavoriteEvent("saveCreated", populatedFavorite);
 
     return sendSuccess(
       res,
@@ -97,15 +97,15 @@ export const removeFavoriteByID = async (req, res, next) => {
     }
 
     const favorite = await Favorite.findOne({
-      user_id: req.user._id,
-      $or: [{ freelancer_id: type_id }, { service_id: type_id }],
+      userId: req.user._id,
+      $or: [{ freelancerId: type_id }, { serviceId: type_id }],
     });
 
     if (!favorite) {
       return sendError(res, 404, "Save not found");
     }
 
-    emitFavoriteEvent("favoriteDeleted", favorite._id);
+    emitFavoriteEvent("saveDelete", favorite._id);
 
     await Favorite.findByIdAndDelete(favorite._id);
 
@@ -117,11 +117,11 @@ export const removeFavoriteByID = async (req, res, next) => {
 
 export const getOwnFavorite = async (req, res, next) => {
   try {
-    const user_id = req.user._id;
+    const userId = req.user._id;
 
-    const savedFavorites = await Favorite.find({ user_id })
-      .populate("freelancer_id")
-      .populate("service_id");
+    const savedFavorites = await Favorite.find({ userId })
+      .populate("freelancerId")
+      .populate("serviceId");
 
     return sendSuccess(
       res,
@@ -143,11 +143,11 @@ export const getFavoriteByID = async (req, res, next) => {
     }
 
     const favorite = await Favorite.findOne({
-      user_id: req.user._id,
-      $or: [{ freelancer_id: id }, { service_id: id }],
+      userId: req.user._id,
+      $or: [{ freelancerId: id }, { serviceId: id }],
     })
-      .populate("freelancer_id", "name skills location")
-      .populate("service_id", "title description price");
+      .populate("freelancerId", "name skills location")
+      .populate("serviceId", "title description price");
 
     if (!favorite) {
       return sendError(res, 404, "Save not found");
@@ -166,13 +166,13 @@ export const getFavoriteByID = async (req, res, next) => {
 
 export const getOwnFavoriteFreelancer = async (req, res, next) => {
   try {
-    const user_id = req.user._id;
+    const userId = req.user._id;
 
     const favoriteFreelancers = await Favorite.find({
-      user_id,
-      freelancer_id: { $ne: null },
+      userId,
+      freelancerId: { $ne: null },
     }).populate({
-      path: "freelancer_id",
+      path: "freelancerId",
       populate: {
         path: "profile.category_id",
         select: "name slug",
@@ -192,12 +192,12 @@ export const getOwnFavoriteFreelancer = async (req, res, next) => {
 
 export const getOwnFavoriteService = async (req, res, next) => {
   try {
-    const user_id = req.user._id;
+    const userId = req.user._id;
 
     const favoriteServices = await Favorite.find({
-      user_id,
-      service_id: { $ne: null },
-    }).populate("service_id");
+      userId,
+      serviceId: { $ne: null },
+    }).populate("serviceId");
 
     return sendSuccess(
       res,
@@ -205,6 +205,99 @@ export const getOwnFavoriteService = async (req, res, next) => {
       "Favorite services retrieved successfully",
       favoriteServices
     );
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const checkSave = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return sendError(res, 400, "Invalid ID format");
+    }
+
+    const favorite = await Favorite.findOne({
+      userId: req.user._id,
+      $or: [{ freelancerId: id }, { serviceId: id }],
+    });
+
+    return sendSuccess(res, 200, "Check save status", !!favorite);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const toggleFavorite = async (req, res, next) => {
+  try {
+    const { type, freelancerId, serviceId } = req.body;
+    const userId = req.user._id;
+
+    if (!type || !["freelancer", "service"].includes(type)) {
+      return sendError(
+        res,
+        400,
+        "Invalid type. Allowed: 'freelancer', 'service'"
+      );
+    }
+
+    if (type === "freelancer" && !freelancerId) {
+      return sendError(
+        res,
+        400,
+        "Freelancer ID is required for type 'freelancer'"
+      );
+    }
+
+    if (type === "service" && !serviceId) {
+      return sendError(res, 400, "Service ID is required for type 'service'");
+    }
+
+    const query = {
+      userId,
+      type,
+      freelancerId: freelancerId || null,
+      serviceId: serviceId || null,
+    };
+
+    const existingFavorite = await Favorite.findOne(query);
+    console.log(existingFavorite);
+
+    if (existingFavorite) {
+      await Favorite.deleteOne({ _id: existingFavorite._id });
+      emitFavoriteEvent("saveToggled", existingFavorite);
+      return sendSuccess(res, 200, `${type} unsaved successfully`, true);
+    }
+
+    const favorite = new Favorite(query);
+    await favorite.save();
+
+    const populatedFavorite = await Favorite.findById(favorite._id)
+      .populate("freelancerId", "name email")
+      .populate("serviceId", "title description price");
+
+    // Notification
+    try {
+      const notification = new Notification({
+        type: "Save Created",
+        message: `You have saved a ${type}`,
+        isRead: false,
+        metadata: {
+          type: `Saved ${type}`,
+          message: `Saved ${type} with ID ${freelancerId || serviceId}.`,
+        },
+      });
+
+      await notification.save();
+      emitNotificationEvent("notificationCreated", notification);
+    } catch (error) {
+      console.error("Notification creation error:", error);
+    }
+
+    emitFavoriteEvent("saveCreated", populatedFavorite);
+
+    return sendSuccess(res, 201, `${type} saved successfully`, true);
   } catch (error) {
     next(error);
   }

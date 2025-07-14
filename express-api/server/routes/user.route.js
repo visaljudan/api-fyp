@@ -2,21 +2,23 @@ import express from "express";
 import { admin, auth } from "../utils/verify.js";
 import {
   getUsers,
-  getUserById,
+  getUser,
   getOwnProfile,
   updateOwnProfile,
   updateUser,
   deleteUser,
   getFreelancers,
+  updateUserStatus,
 } from "../controllers/user.controller.js";
 
 const userRouter = express.Router();
 
 //Auth
 userRouter.get("/", getUsers);
-userRouter.get("/all/freelancers", getFreelancers);
-userRouter.get("/:id", auth, getUserById);
+userRouter.get("/:id", getUser);
 userRouter.get("/own/profile", auth, getOwnProfile);
+userRouter.patch("/:id/status", auth, admin, updateUserStatus);
+userRouter.get("/all/freelancers", getFreelancers);
 userRouter.put("/own/update", auth, updateOwnProfile);
 
 //Admin

@@ -2,34 +2,35 @@ import mongoose from "mongoose";
 
 const serviceSchema = new mongoose.Schema(
   {
-    freelancer_id: {
+    // Core Relationship
+    freelancerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
+    categoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: true,
+    },
+
+    // Core Service Information
     name: {
       type: String,
       required: true,
       trim: true,
     },
-    category_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Category",
-      required: true,
-    },
     description: {
       type: String,
+      required: true,
       trim: true,
     },
-    type_rate: {
-      type: String,
-      enum: ["per hour", "per project", "per day", "per week", "per month"],
-      required: true,
-    },
-    price_rate: {
-      type: Number,
-      required: true,
-    },
+    images: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     tags: [
       {
         type: String,
@@ -41,21 +42,110 @@ const serviceSchema = new mongoose.Schema(
         title: { type: String, trim: true, default: "" },
         description: { type: String, trim: true, default: "" },
         link: { type: String, trim: true, default: "" },
+        image: { type: String, trim: true, default: "" },
       },
     ],
-    availability: {
-      type: Boolean,
-      default: true,
+
+    // Pricing
+    typeRate: {
+      type: String,
+      enum: [
+        "per hour",
+        "per project",
+        "per day",
+        "per week",
+        "per month",
+        "per year",
+      ],
       required: true,
     },
-    status: {
-      type: String,
-      enum: ["Pending", "Approved", "Rejected"],
-      default: "Pending",
+    priceRate: {
+      type: Number,
+      required: true,
     },
-    admin_comments: {
+
+    // Availability
+    availability: {
+      type: String,
+      enum: ["available", "busy", "on vacation"],
+      default: "available",
+    },
+    nextAvailableDate: {
+      type: Date,
+      default: null,
+    },
+
+    // Admin Review
+    requestStatus: {
+      type: String,
+      enum: ["draft", "requested"],
+      default: "requested",
+    },
+    serviceStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+    },
+    adminComment: {
       type: String,
       default: "",
+    },
+    adminId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    featured: {
+      type: Boolean,
+      default: false,
+    },
+
+    // Optional Additional Info
+    experienceLevel: {
+      type: String,
+      enum: ["beginner", "intermediate", "expert"],
+      default: "intermediate",
+    },
+    languages: {
+      type: [String],
+      default: [],
+    },
+    location: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    duration: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    visibility: {
+      type: String,
+      enum: ["public", "private"],
+      default: "public",
+    },
+    publishedAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Analytics
+    views: {
+      type: Number,
+      default: 0,
+    },
+    likes: {
+      type: Number,
+      default: 0,
+    },
+    rate: {
+      type: Number, 
+      default: 0,
+    },
+    rating: {
+      type: Number,
+      default: 0,
     },
   },
   { timestamps: true }

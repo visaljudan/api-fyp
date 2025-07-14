@@ -6,65 +6,149 @@ import {
   emitNotificationEvent,
 } from "../utils/socketioFunctions.js";
 import Notification from "../models/notification.model.js";
-import Role from "../models/role.model.js";
+import User from "../models/user.model.js";
+import Category from "../models/category.model.js";
+import Service from "../models/service.model.js";
 
 export const createJob = async (req, res, next) => {
   try {
-    const { freelancer_id, title, description, category_id, budget, deadline } =
-      req.body;
-    const client_id = req.user._id;
+    const {
+      serviceId,
+      freelancerId: inputFreelancerId,
+      categoryId: inputCategoryId,
+      title,
+      description,
+      budget,
+      unitBudget,
+      deadline,
+      clientMessage,
+      type,
+    } = req.body;
 
-    if (!client_id || !mongoose.Types.ObjectId.isValid(client_id)) {
-      return sendError(res, 400, "Valid client ID is required.");
+    const clientId = req.user._id;
+
+    let service = null;
+    let freelancerId = null;
+    let categoryId = null;
+
+    // If serviceId provided → validate and fetch service → auto set freelancerId + categoryId
+    if (serviceId) {
+      if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+        return sendError(res, 400, "Service ID is invalid.");
+      }
+
+      service = await Service.findById(serviceId);
+      if (!service) {
+        return sendError(res, 400, "Service not found.");
+      }
+
+      freelancerId = service.freelancerId;
+      categoryId = service.categoryId;
+    } else {
+      // No serviceId → freelancerId required
+      if (!inputFreelancerId) {
+        return sendError(
+          res,
+          400,
+          "Freelancer ID is required when no Service ID is provided."
+        );
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(inputFreelancerId)) {
+        return sendError(res, 400, "Freelancer ID is invalid.");
+      }
+
+      const freelancer = await User.findById(inputFreelancerId);
+      if (!freelancer) {
+        return sendError(res, 400, "Freelancer not found.");
+      }
+
+      freelancerId = freelancer._id;
+
+      // No serviceId → categoryId required
+      if (inputCategoryId) {
+        if (!mongoose.Types.ObjectId.isValid(inputCategoryId)) {
+          return sendError(res, 400, "Category ID is invalid.");
+        }
+
+        const category = await Category.findById(inputCategoryId);
+        if (!category) {
+          return sendError(res, 400, "Category not found.");
+        }
+
+        categoryId = category._id;
+      }
     }
 
-    if (!freelancer_id || !mongoose.Types.ObjectId.isValid(freelancer_id)) {
-      return sendError(res, 400, "Valid freelancer ID is required.");
+    // Title
+    if (!title || title.trim() === "") {
+      return sendError(res, 400, "Title is required.");
     }
 
-    if (!description) {
+    // Description
+    if (!description || description.trim() === "") {
       return sendError(res, 400, "Description is required.");
     }
 
-    if (budget === undefined || budget < 0) {
+    // Budget
+    if (!budget || budget < 0) {
       return sendError(res, 400, "A valid budget is required.");
     }
+    // Unit Budget
+    if (
+      !unitBudget ||
+      !["per hour", "per project", "per day", "per week", "per month"].includes(
+        unitBudget
+      )
+    ) {
+      return sendError(res, 400, "A valid unit budget is required.");
+    }
+
+    const finalBudget = budget ?? service?.priceRate;
+    const finalUnitBudget = unitBudget ?? service?.typeRate;
 
     const job = new Job({
-      client_id,
-      freelancer_id,
-      title: title?.trim(),
+      clientId,
+      freelancerId,
+      categoryId,
+      serviceId: serviceId || null,
+      title: title.trim(),
       description: description.trim(),
-      category_id: category_id || null,
-      budget,
+      budget: finalBudget,
+      unitBudget: finalUnitBudget,
       deadline: deadline || null,
+      clientMessage: clientMessage?.trim() || "",
+      type: type || "request",
     });
 
     await job.save();
 
     const populatedJob = await Job.findById(job._id)
-      .populate("client_id", "name email")
-      .populate("freelancer_id", "name email")
-      .populate("category_id", "name");
+      .populate("clientId", "name email")
+      .populate("freelancerId", "name email")
+      .populate("categoryId", "name")
+      .populate("serviceId", "title");
 
+    // Optional notification handling
     try {
       const notification = new Notification({
-        user_id: freelancer_id,
+        userId: populatedJob.freelancerId._id,
         type: "Job Created",
-        message: `A new job "${title}" has been invite by "${populatedJob.client_id.name}".`,
-        is_read: false,
-        is_admin: true,
+        message: `New job "${title}" from "${populatedJob.clientId.name}".`,
+        isRead: false,
+        isAdmin: true,
         metadata: {
           type: "Job Created",
-          message: `Job "${title}" by "${populatedJob.client_id.name}" has been created for freelancer "${populatedJob.freelancer_id.name}".`,
+          message: `Job "${title}" created for freelancer "${populatedJob.freelancerId.name}".`,
           data: populatedJob,
         },
+        source: "http://localhost:5173/job-management/",
       });
 
       await notification.save();
       emitNotificationEvent("notificationCreated", notification);
-    } catch (error) {
-      console.error("Error creating notification:", error);
+    } catch (err) {
+      console.error("Notification error:", err);
     }
 
     emitJobEvent("JobCreated", populatedJob);
@@ -75,23 +159,93 @@ export const createJob = async (req, res, next) => {
   }
 };
 
-export const getAllJobs = async (req, res, next) => {
+export const getJobs = async (req, res, next) => {
   try {
-    const jobs = await Job.find()
-      .populate("client_id", "name email avatar")
-      .populate("freelancer_id", "name email avatar");
+    const {
+      page = 1,
+      limit = 10,
+      sort = "createdAt",
+      order = "desc",
+      search = "",
+      clientId,
+      freelancerId,
+      categoryId,
+      serviceId,
+      own,
+      status,
+    } = req.query;
 
-    if (!jobs.length) {
-      return sendError(res, 404, "No jobs found");
+    const skip = (page - 1) * limit;
+    const sortOrder = order === "asc" ? 1 : -1;
+
+    const query = {};
+
+    if (search) {
+      query.$or = [
+        { title: { $regex: new RegExp(search, "i") } },
+        { description: { $regex: new RegExp(search, "i") } },
+      ];
     }
 
-    return sendSuccess(res, 200, "Jobs retrieved successfully", jobs);
+    if (own === "true" && req.user?._id) {
+      query.$or = [{ clientId: req.user._id }, { freelancerId: req.user._id }];
+    } else {
+      if (clientId) {
+        if (!mongoose.Types.ObjectId.isValid(clientId)) {
+          return sendError(res, 400, "Invalid client ID format");
+        }
+        query.clientId = clientId;
+      }
+
+      if (freelancerId) {
+        if (!mongoose.Types.ObjectId.isValid(freelancerId)) {
+          return sendError(res, 400, "Invalid freelancer ID format");
+        }
+        query.freelancerId = freelancerId;
+      }
+    }
+
+    if (categoryId) {
+      if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+        return sendError(res, 400, "Invalid category ID format");
+      }
+      query.categoryId = categoryId;
+    }
+
+    if (serviceId) {
+      if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+        return sendError(res, 400, "Invalid service ID format");
+      }
+      query.serviceId = serviceId;
+    }
+
+    if (status) {
+      query.status = status;
+    }
+
+    const jobs = await Job.find(query)
+      .populate("clientId", "name email")
+      .populate("freelancerId")
+      .populate("categoryId", "name")
+      .populate("serviceId", "title")
+      .sort({ [sort]: sortOrder })
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Job.countDocuments(query);
+
+    return sendSuccess(res, 200, "Jobs retrieved successfully", {
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      data: jobs,
+    });
   } catch (error) {
     next(error);
   }
 };
 
-export const getJobById = async (req, res, next) => {
+export const getJob = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -100,8 +254,10 @@ export const getJobById = async (req, res, next) => {
     }
 
     const job = await Job.findById(id)
-      .populate("client_id", "name email")
-      .populate("freelancer_id", "name email");
+      .populate("clientId", "name email")
+      .populate("freelancerId", "name email")
+      .populate("categoryId", "name")
+      .populate("serviceId", "title");
 
     if (!job) {
       return sendError(res, 404, "Job not found");
@@ -113,51 +269,61 @@ export const getJobById = async (req, res, next) => {
   }
 };
 
-export const getOwnAllJobs = async (req, res, next) => {
+export const getOwnJobs = async (req, res, next) => {
   try {
-    const user_id = req.user._id;
-    const role_id = req.user.role_id;
-    const { status, is_read } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      sort = "createdAt",
+      order = "desc",
+      search = "",
+      status,
+      role = "freelancer",
+    } = req.query;
 
-    if (!mongoose.Types.ObjectId.isValid(user_id)) {
-      return sendError(res, 400, "Invalid user ID format");
-    }
+    const userId = req.user._id;
+    const skip = (page - 1) * limit;
+    const sortOrder = order === "asc" ? 1 : -1;
 
-    const role = await Role.findById(role_id);
+    const query = {};
 
-    if (!role || !role.slug) {
-      return sendError(res, 403, "Invalid or unauthorized role");
-    }
-
-    let filter = {};
-
-    if (role.slug === "client") {
-      filter.client_id = user_id;
-    } else if (role.slug === "freelancer") {
-      filter.freelancer_id = user_id;
+    // Determine ownership filter
+    if (role === "freelancer") {
+      query.freelancerId = userId;
     } else {
-      return sendError(res, 403, "Unauthorized role");
+      query.clientId = userId;
     }
 
+    // Optional search
+    if (search) {
+      query.$or = [
+        { title: { $regex: new RegExp(search, "i") } },
+        { description: { $regex: new RegExp(search, "i") } },
+      ];
+    }
+
+    // Optional status filter
     if (status) {
-      filter.status = status;
+      query.status = status;
     }
 
-    if (is_read !== undefined) {
-      filter.is_read = is_read;
-    }
+    const jobs = await Job.find(query)
+      .populate("clientId", "name email avatar")
+      .populate("freelancerId")
+      .populate("categoryId")
+      .populate("serviceId")
+      .sort({ [sort]: sortOrder })
+      .skip(skip)
+      .limit(Number(limit));
 
-    const jobs = await Job.find(filter)
-      .populate("client_id", "name email avatar")
-      .populate("freelancer_id", "name email avatar")
-      .populate("category_id", "name slug")
-      .sort({ createdAt: -1 });
+    const total = await Job.countDocuments(query);
 
-    if (!jobs.length) {
-      return sendError(res, 404, "No jobs found");
-    }
-
-    return sendSuccess(res, 200, "Jobs retrieved successfully", jobs);
+    return sendSuccess(res, 200, "Own jobs retrieved successfully", {
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      data: jobs,
+    });
   } catch (error) {
     next(error);
   }
@@ -241,13 +407,15 @@ export const acceptOrRejectJob = async (req, res, next) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!["Accepted", "Rejected"].includes(status)) {
-      return sendError(res, 400, "Status must be 'Accepted' or 'Rejected'");
+    if (
+      !["accepted", "rejected", "in progress", "compeleted"].includes(status)
+    ) {
+      return sendError(res, 400, "Status must be 'accepted' or 'rejected'");
     }
 
     const job = await Job.findByIdAndUpdate(
       id,
-      { status, is_read: true },
+      { status, isRead: true, type: "job" },
       { new: true, runValidators: true }
     );
 
@@ -256,27 +424,28 @@ export const acceptOrRejectJob = async (req, res, next) => {
     }
 
     const populatedJob = await Job.findById(job._id)
-      .populate("client_id", "name email")
-      .populate("freelancer_id", "name email")
-      .populate("category_id", "name");
+      .populate("clientId", "name email")
+      .populate("freelancerId", "name email")
+      .populate("categoryId", "name")
+      .populate("serviceId", "title");
 
     try {
       const notification = new Notification({
-        user_id: populatedJob.client_id._id,
+        userId: populatedJob.clientId._id,
         type: "Job Status Update",
         message: `Your job invite "${
           populatedJob.title
         }" has been ${status.toLowerCase()} from "${
-          populatedJob.freelancer_id.name
+          populatedJob.freelancerId.name
         }".`,
         is_read: false,
         is_admin: true,
         metadata: {
           type: "Job Notification",
           message: `Job "${populatedJob.title}" by "${
-            populatedJob.client_id.name
+            populatedJob.clientId.name
           }" has been has been ${status.toLowerCase()} from freelancer "${
-            populatedJob.freelancer_id.name
+            populatedJob.freelancerId.name
           }".`,
           data: populatedJob,
         },
@@ -299,10 +468,10 @@ export const acceptOrRejectJob = async (req, res, next) => {
 export const respondToJob = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { response } = req.body;
-    const freelancer_id = req.user._id;
+    const { freelancerResponse } = req.body;
+    const freelancerId = req.user._id;
 
-    if (!response || response.trim() === "") {
+    if (!freelancerResponse || freelancerResponse.trim() === "") {
       return sendError(res, 400, "Response text is required.");
     }
 
@@ -312,7 +481,7 @@ export const respondToJob = async (req, res, next) => {
       return sendError(res, 404, "Job not found.");
     }
 
-    if (!job.freelancer_id.equals(freelancer_id)) {
+    if (!job.freelancerId.equals(freelancerId)) {
       return sendError(
         res,
         403,
@@ -320,38 +489,37 @@ export const respondToJob = async (req, res, next) => {
       );
     }
 
-    job.response = response.trim();
-    job.is_read = true;
+    job.freelancerResponse = freelancerResponse.trim();
+    job.isRead = true;
     await job.save();
 
-    const populatedJob = await Job.find(job._id)
-      .populate("client_id", "name email avatar")
-      .populate("freelancer_id", "name email avatar")
-      .populate("category_id", "name slug");
+    const populatedJob = await Job.findById(job._id)
+      .populate("clientId", "name email")
+      .populate("freelancerId", "name email")
+      .populate("categoryId", "name")
+      .populate("serviceId", "title");
 
     try {
       const notification = new Notification({
-        user_id: job.client_id,
+        userId: job.clientId,
         type: "Job Has Response",
         message: `Your job invite "${job.title}" has been responded with "${job.response}"`,
         is_read: false,
         is_admin: false,
         metadata: {
           type: "Job Notification",
-          message: `Job "${populatedJob.title}" by "${populatedJob.client_id?.name}" has been responded to by freelancer "${populatedJob.freelancer_id?.name}".`,
+          message: `Job "${populatedJob.title}" by "${populatedJob.clientId?.name}" has been responded to by freelancer "${populatedJob.freelancerId?.name}".`,
           data: populatedJob,
         },
       });
 
       await notification.save();
-
-      console.log(notification);
       emitNotificationEvent("notificationCreated", notification);
     } catch (error) {
       console.error("Error creating notification:", error);
     }
 
-    emitNotificationEvent("jobInquiryUpdated", populatedJob);
+    emitJobEvent("jobInquiryUpdated", populatedJob);
 
     return sendSuccess(
       res,

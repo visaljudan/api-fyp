@@ -2,22 +2,22 @@ import mongoose from "mongoose";
 
 const reviewSchema = new mongoose.Schema(
   {
-    user_id: {
+    clientId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
     type: {
       type: String,
-      enum: ["Freelancer", "Service"],
+      enum: ["freelancer", "service"],
       required: true,
     },
-    freelancer_id: {
+    freelancerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: false,
     },
-    service_id: {
+    serviceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Service",
       required: false,
@@ -40,12 +40,17 @@ const reviewSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Pending", "Approved", "Rejected"],
-      default: "Pending",
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
     },
-    admin_comment: {
+    adminComment: {
       type: String,
       trim: true,
+    },
+    adminId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: false,
     },
   },
   { timestamps: true }

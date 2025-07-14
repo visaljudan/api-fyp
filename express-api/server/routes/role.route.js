@@ -2,21 +2,22 @@ import express from "express";
 import {
   createRole,
   getRoles,
-  getRoleById,
+  getRole,
   updateRole,
   deleteRole,
 } from "../controllers/role.controller.js";
-import { admin, auth } from "../utils/verify.js";
+import { admin, auth, checkPermission } from "../utils/verify.js";
 
 const roleRouter = express.Router();
 
-//Aut
+// No permission
 roleRouter.get("/", getRoles);
-roleRouter.get("/:id", auth, getRoleById);
+roleRouter.get("/:id", getRole);
 
-//Admin
-roleRouter.post("/", auth, admin, createRole);
-roleRouter.put("/:id", auth, admin, updateRole);
-roleRouter.delete("/:id", auth, admin, deleteRole);
+// Permission
+roleRouter.post("/", auth, checkPermission("create", "role"), createRole);
+// roleRouter.put("/:id", auth, checkPermission("update", "role"), updateRole);
+roleRouter.put("/:id", auth, updateRole);
+roleRouter.delete("/:id", auth, checkPermission("delete", "role"), deleteRole);
 
 export default roleRouter;

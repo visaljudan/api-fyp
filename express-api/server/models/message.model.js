@@ -2,12 +2,12 @@ import mongoose from "mongoose";
 
 const messageSchema = new mongoose.Schema(
   {
-    sender_id: {
+    senderId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-    receiver_id: {
+    receiverId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
@@ -20,14 +20,10 @@ const messageSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    timestamp: {
-      type: Date,
-      default: Date.now,
-    },
     status: {
       type: String,
-      enum: ["Sent", "Read", "Unread"],
-      default: "Unread",
+      enum: ["sent", "read", "unread"],
+      default: "unread",
     },
   },
   { timestamps: true }

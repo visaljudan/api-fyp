@@ -4,9 +4,11 @@ import {
   deleteCategory,
   getCategories,
   getCategoryById,
-  getCategoryTypeFreelancer,
-  getCategoryTypeService,
+  getOwnCategories,
+  // getCategoryTypeFreelancer,
+  // getCategoryTypeService,
   updateCategory,
+  updateRequestStatusCategory,
 } from "../controllers/category.controller.js";
 import { admin, auth } from "../utils/verify.js";
 
@@ -14,13 +16,18 @@ const categoryRouter = express.Router();
 
 //Auth
 categoryRouter.get("/", getCategories);
+categoryRouter.get("/own", auth, getOwnCategories);
 categoryRouter.get("/:id", getCategoryById);
 
 //Admin
-categoryRouter.post("/", auth, admin, createCategory);
+categoryRouter.post("/", auth, createCategory);
 categoryRouter.put("/:id", auth, admin, updateCategory);
-categoryRouter.delete("/:id", auth, admin, deleteCategory);
-categoryRouter.get("/only/freelancer", getCategoryTypeFreelancer);
-categoryRouter.get("/only/service", getCategoryTypeService);
+categoryRouter.patch(
+  "/:id/request-status",
+  auth,
+  admin,
+  updateRequestStatusCategory
+);
+categoryRouter.delete("/:id", auth, deleteCategory);
 
 export default categoryRouter;

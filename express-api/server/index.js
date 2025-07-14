@@ -22,6 +22,9 @@ import jobRouter from "./routes/job.route.js";
 import notificationRouter from "./routes/notification.route.js";
 import messageRouter from "./routes/message.route.js";
 import favoriteRouter from "./routes/favorite.route.js";
+import portfolioRouter from "./routes/portfolio.route.js";
+import inquiryRouter from "./routes/inquiry.route.js";
+import taskRouter from "./routes/task.route.js";
 // import categoryRouter from "./routes/category.route.js";
 // import productRouter from "./routes/product.route.js";
 // import productImageRouter from "./routes/product_image.route.js";
@@ -34,6 +37,9 @@ const mongo = process.env.MONGO;
 const httpServer = createServer(app);
 export const io = new Server(httpServer, {
   cors: {
+    // origin: "exp://192.168.1.134:8081",
+    origin: "exp://192.168.1.135:8081",
+    // origin: "exp://192.168.1.141:8081",
     origin: "http://localhost:5173",
     methods: ["GET", "POST"],
     credentials: true,
@@ -70,15 +76,24 @@ app.use("/", swaggerRouter);
 app.use("/api/roles", roleRouter);
 app.use("/api/v1/roles", roleRouter);
 app.use("/api/auth", authRouter);
+app.use("/api/v1/auth", authRouter);
 app.use("/api/users", userRouter);
+app.use("/api/v1/users", userRouter);
 app.use("/api/categories", categoryRouter);
-app.use("/api/services", serviceRouter);
-app.use("/api/reviews", reviewRouter);
+app.use("/api/v1/categories", categoryRouter);
+// app.use("/api/services", serviceRouter);
+app.use("/api/v1", serviceRouter);
+app.use("/api/v1/inquiries", inquiryRouter);
+app.use("/api/v1/reviews", reviewRouter);
 app.use("/api/category_request", categoryRequestRouter);
-app.use("/api/jobs", jobRouter);
-app.use("/api/notifications", notificationRouter);
+app.use("/api/v1/jobs", jobRouter);
+app.use("/api/v1/notifications", notificationRouter);
 app.use("/api/messages", messageRouter);
+app.use("/api/v1/messages", messageRouter);
 app.use("/api/favorites", favoriteRouter);
+app.use("/api/v1/saves", favoriteRouter);
+app.use("/api/v1", portfolioRouter);
+app.use("/api/v1/tasks", taskRouter);
 
 app.get("/test", (req, res) => {
   res.send("Socket.IO Server is running");

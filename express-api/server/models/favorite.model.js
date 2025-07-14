@@ -2,22 +2,22 @@ import mongoose from "mongoose";
 
 const favoriteSchema = new mongoose.Schema(
   {
-    user_id: {
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
     type: {
       type: String,
-      enum: ["Freelancer", "Service"],
+      enum: ["freelancer", "service"],
       required: true,
     },
-    freelancer_id: {
+    freelancerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: false,
     },
-    service_id: {
+    serviceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Service",
       required: false,
@@ -26,6 +26,11 @@ const favoriteSchema = new mongoose.Schema(
   {
     timestamps: true,
   }
+);
+
+favoriteSchema.index(
+  { userId: 1, targetId: 1, targetType: 1 },
+  { unique: true }
 );
 
 const Favorite = mongoose.model("Favorite", favoriteSchema);

@@ -1,15 +1,15 @@
 import mongoose from "mongoose";
+import Message from "../models/message.model.js";
 import { encryptContent, decryptContent } from "../utils/encryption.js";
 import { sendError, sendSuccess } from "../utils/response.js";
-import Message from "../models/Message.model.js";
 import { emitMessageEvent } from "../utils/socketioFunctions.js";
 
 export const sendMessage = async (req, res, next) => {
   try {
-    const { receiver_id, content } = req.body;
-    const sender_id = req.user._id;
+    const { receiverId, content } = req.body;
+    const senderId = req.user._id;
 
-    if (!receiver_id || !mongoose.Types.ObjectId.isValid(receiver_id)) {
+    if (!receiverId || !mongoose.Types.ObjectId.isValid(receiverId)) {
       return sendError(res, 400, "Invalid receiver ID.");
     }
 
@@ -20,8 +20,8 @@ export const sendMessage = async (req, res, next) => {
     const { iv, content: encryptedContent } = encryptContent(content);
 
     const message = new Message({
-      sender_id,
-      receiver_id,
+      senderId,
+      receiverId,
       content: encryptedContent,
       iv,
     });
@@ -29,8 +29,8 @@ export const sendMessage = async (req, res, next) => {
     await message.save();
 
     const populatedMessage = await Message.findById(message._id)
-      .populate("sender_id", "name email avatar")
-      .populate("receiver_id", "name email avatar");
+      .populate("senderId", "name email avatar")
+      .populate("receiverId", "name email avatar");
 
     const decryptedMessage = {
       ...populatedMessage.toObject(),
@@ -47,10 +47,8 @@ export const sendMessage = async (req, res, next) => {
 
 export const getMessages = async (req, res, next) => {
   try {
-    const user_id = req.user._id;
+    const userId = req.user._id;
     const { conversationId } = req.params;
-    console.log("admin", user_id);
-    console.log("freelancer", conversationId);
 
     if (!mongoose.Types.ObjectId.isValid(conversationId)) {
       return sendError(res, 400, "Invalid conversation ID.");
@@ -60,12 +58,12 @@ export const getMessages = async (req, res, next) => {
 
     const messages = await Message.find({
       $or: [
-        { sender_id: user_id, receiver_id: conversationObjectId },
-        { sender_id: conversationObjectId, receiver_id: user_id },
+        { senderId: userId, receiverId: conversationObjectId },
+        { senderId: conversationObjectId, receiverId: userId },
       ],
     })
-      .populate("sender_id", "name email avatar")
-      .populate("receiver_id", "name email avatar")
+      .populate("senderId", "name email avatar")
+      .populate("receiverId", "name email avatar")
       .sort({ timestamp: 1 });
 
     if (!messages.length) {
@@ -88,68 +86,36 @@ export const getMessages = async (req, res, next) => {
   }
 };
 
-export const getUnreadMessages = async (req, res, next) => {
-  try {
-    const user_id = req.user._id;
-
-    const unreadMessages = await Message.find({
-      receiver_id: user_id,
-      status: "Unread",
-    })
-      .populate("sender_id", "name email avatar")
-      .populate("receiver_id", "name email avatar")
-      .sort({ timestamp: 1 });
-
-    if (!unreadMessages.length) {
-      return sendError(res, 404, "No unread messages.");
-    }
-
-    const decryptedMessages = unreadMessages.map((message) => ({
-      ...message.toObject(),
-      content: decryptContent(message.content, message.iv),
-    }));
-
-    return sendSuccess(
-      res,
-      200,
-      "Unread messages retrieved successfully",
-      decryptedMessages
-    );
-  } catch (error) {
-    next(error);
-  }
-};
-
 export const getLastMessages = async (req, res, next) => {
   try {
-    const user_id = req.user._id;
+    const userId = new mongoose.Types.ObjectId(req.user._id);
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
 
-    const lastMessages = await Message.aggregate([
+    const aggregatedMessages = await Message.aggregate([
       {
         $match: {
-          $or: [
-            { sender_id: new mongoose.Types.ObjectId(user_id) },
-            { receiver_id: new mongoose.Types.ObjectId(user_id) },
-          ],
+          $or: [{ senderId: userId }, { receiverId: userId }],
         },
       },
       {
         $addFields: {
           conversationKey: {
             $cond: [
-              { $gt: ["$sender_id", "$receiver_id"] },
+              { $gt: ["$senderId", "$receiverId"] },
               {
                 $concat: [
-                  { $toString: "$receiver_id" },
+                  { $toString: "$receiverId" },
                   "_",
-                  { $toString: "$sender_id" },
+                  { $toString: "$senderId" },
                 ],
               },
               {
                 $concat: [
-                  { $toString: "$sender_id" },
+                  { $toString: "$senderId" },
                   "_",
-                  { $toString: "$receiver_id" },
+                  { $toString: "$receiverId" },
                 ],
               },
             ],
@@ -157,9 +123,7 @@ export const getLastMessages = async (req, res, next) => {
         },
       },
       {
-        $sort: {
-          timestamp: -1,
-        },
+        $sort: { createdAt: -1 },
       },
       {
         $group: {
@@ -168,37 +132,38 @@ export const getLastMessages = async (req, res, next) => {
         },
       },
       {
-        $replaceRoot: {
-          newRoot: "$lastMessage",
+        $replaceRoot: { newRoot: "$lastMessage" },
+      },
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: limit }],
+          totalCount: [{ $count: "count" }],
         },
       },
     ]);
 
-    if (!lastMessages.length) {
-      return sendError(res, 404, "No messages found.");
-    }
+    const messages = aggregatedMessages[0]?.data || [];
+    const total = aggregatedMessages[0]?.totalCount[0]?.count || 0;
 
-    const populatedLastMessages = await Promise.all(
-      lastMessages.map(async (message) => {
-        const populatedMessage = await Message.findById(message._id)
-          .populate("sender_id", "name email avatar")
-          .populate("receiver_id", "name email avatar");
+    const populatedMessages = await Promise.all(
+      messages.map(async (msg) => {
+        const populated = await Message.findById(msg._id)
+          .populate("senderId", "name email avatar")
+          .populate("receiverId", "name email avatar");
 
-        return populatedMessage;
+        return {
+          ...populated.toObject(),
+          content: decryptContent(populated.content, populated.iv),
+        };
       })
     );
 
-    const decryptedMessages = populatedLastMessages.map((message) => ({
-      ...message.toObject(),
-      content: decryptContent(message.content, message.iv),
-    }));
-
-    return sendSuccess(
-      res,
-      200,
-      "Last messages retrieved successfully",
-      decryptedMessages
-    );
+    return sendSuccess(res, 200, "Last messages retrieved successfully", {
+      total,
+      page,
+      limit,
+      data: populatedMessages,
+    });
   } catch (error) {
     next(error);
   }
@@ -222,7 +187,18 @@ export const markMessageAsRead = async (req, res, next) => {
       return sendError(res, 404, "Message not found.");
     }
 
-    return sendSuccess(res, 200, "Message marked as read", message);
+    const populatedMessage = await Message.findById(message._id)
+      .populate("senderId", "name email avatar")
+      .populate("receiverId", "name email avatar");
+
+    const decryptedMessage = {
+      ...populatedMessage.toObject(),
+      content: decryptContent(populatedMessage.content, populatedMessage.iv),
+    };
+
+    emitMessageEvent("messageUpdated", decryptedMessage);
+
+    return sendSuccess(res, 200, "Message marked as read", decryptedMessage);
   } catch (error) {
     next(error);
   }
@@ -243,6 +219,48 @@ export const deleteMessage = async (req, res, next) => {
     }
 
     return sendSuccess(res, 200, "Message deleted successfully");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getUnreadMessages = async (req, res, next) => {
+  try {
+    const { senderId } = req.params;
+    const userId = req.user._id;
+
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const query = {
+      senderId: senderId,
+      receiverId: userId,
+      status: "unread",
+    };
+
+    const total = await Message.countDocuments(query);
+    const totalPages = Math.ceil(total / limit);
+
+    const unreadMessages = await Message.find(query)
+      .sort({ timestamp: -1 }) // newest first
+      .skip(skip)
+      .limit(limit)
+      .populate("senderId", "name email avatar")
+      .populate("receiverId", "name email avatar");
+
+    const decryptedMessages = unreadMessages.map((msg) => ({
+      ...msg.toObject(),
+      content: decryptContent(msg.content, msg.iv),
+    }));
+
+    return sendSuccess(res, 200, "Unread messages retrieved successfully", {
+      total,
+      totalPages,
+      page,
+      limit,
+      data: decryptedMessages,
+    });
   } catch (error) {
     next(error);
   }

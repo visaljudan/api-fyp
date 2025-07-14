@@ -39,3 +39,19 @@ export const emitFavoriteEvent = (event, data) => {
 export const emitMessageEvent = (event, data) => {
   io.emit(event, data);
 };
+
+export const emitPortfolioEvent = (event, data) => {
+  io.emit(event, data);
+};
+
+export const emitPermissionEvent = (event, data) => {
+  io.emit(event, data);
+};
+
+export const emitInquiryEvent = (event, data) => {
+  io.emit(event, data);
+};
+
+export const emitTaskEvent = (event, data) => {
+  io.emit(event, data);
+};

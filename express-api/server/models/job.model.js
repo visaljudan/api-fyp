@@ -2,18 +2,29 @@ import mongoose from "mongoose";
 
 const jobSchema = new mongoose.Schema(
   {
-    client_id: {
+    clientId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-    freelancer_id: {
+    freelancerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+    },
+    serviceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Service",
+      required: false,
+    },
+    categoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: false,
     },
     title: {
       type: String,
+      required: true,
       trim: true,
     },
     description: {
@@ -21,32 +32,41 @@ const jobSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-    category_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Category",
-      required: false,
-    },
-    status: {
-      type: String,
-      enum: ["Pending", "Accepted", "Rejected"],
-      default: "Pending",
-    },
     budget: {
       type: Number,
       required: true,
       min: 0,
     },
+    unitBudget: {
+      type: String,
+      enum: ["per hour", "per project", "per day", "per week", "per month"],
+      required: true,
+    },
     deadline: {
       type: Date,
       required: false,
     },
-    response: {
+    clientMessage: {
       type: String,
-      trim: true,
+      default: "",
+    },  
+    freelancerResponse: {
+      type: String,
+      default: "",
     },
-    is_read: {
+    isRead: {
       type: Boolean,
       default: false,
+    },
+    status: {
+      type: String,
+      enum: ["pending", "accepted", "rejected", "in progress", "compeleted"],
+      default: "pending",
+    },
+    type: {
+      type: String,
+      enum: ["request", "job"],
+      default: "request",
     },
   },
   {

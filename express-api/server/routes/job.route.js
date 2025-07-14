@@ -1,28 +1,27 @@
 import express from "express";
 import {
   createJob,
-  getJobById,
   updateJob,
   deleteJob,
-  getAllJobs,
-  getOwnAllJobs,
+  getJobs,
+  getOwnJobs,
   markAsRead,
   acceptOrRejectJob,
   respondToJob,
+  getJob,
 } from "../controllers/job.controller.js";
 import { auth, client, admin, freelancer } from "../utils/verify.js";
 
 const jobRouter = express.Router();
 
-jobRouter.post("/", auth, client, createJob);
-jobRouter.get("/", auth, admin, getAllJobs);
-jobRouter.get("/own", auth, getOwnAllJobs);
-jobRouter.get("/:id", auth, getJobById);
+jobRouter.post("/", auth, createJob);
+jobRouter.get("/", auth, getJobs);
+jobRouter.get("/own/jobs", auth, getOwnJobs);
+jobRouter.get("/:id", auth, getJob);
 jobRouter.put("/:id", auth, client, updateJob);
-jobRouter.delete("/:id", auth, deleteJob);
 
 jobRouter.patch("/:id/mark-as-read", auth, freelancer, markAsRead);
-jobRouter.patch("/:id/accept-reject", auth, freelancer, acceptOrRejectJob);
-jobRouter.patch("/:id/response", auth, freelancer, respondToJob);
+jobRouter.patch("/:id/accept-reject", auth, acceptOrRejectJob);
+jobRouter.patch("/:id/response", auth, respondToJob);
 
 export default jobRouter;
